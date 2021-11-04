@@ -1,6 +1,46 @@
 import std/[streams, endians, bitops, strutils]
 
+
+const
+  SysexStart = 0xF0u8
+  SysexEscape = 0xF7u8
+  MetaEvents = 0xFFu8
+
 type
+  Vlq = seq[uint8] # Variable length quantity
+
+  # Track midi event voice types
+  # Voice events fall in range of 0x80..0xE7
+  VoiceStatus = range[0x80..0xEF]
+  NoteOff = range[0x80u8..0x8Fu8]
+  NoteOn = range[0x90u8..0x9Fu8]
+  PolyphonicKeyPressure = range[0xA0u8..0xAFu8]
+  ControllerChange = range[0xB0u8..0xBFu8]
+  ProgramChange = range[0xC0u8..0xCFu8]
+  ChannelKeyPressure = range[0xD0u8..0xDFu8]
+  PitchBend = range[0xE0u8..0xEFu8]
+
+  # Track midievent mode type
+  # Mode messages have an initial status bytes in range of 0xB0..0xBF
+  # Mode messages have a second byte in the range of 0x78..0x7F
+  # Voice events can also have a status byte in the range of 
+  # 0xB0..0xBF, however a voice event's second byte is in range
+  # of 0x00..0x77.  Check second byte when determining event type.
+  ModeStatus = range[0xB0u8..0xBFu8]
+  ModeSub = range[0x78..0x7F]
+
+  # Track Sysex events
+  SysexEvent = object
+    header: uint8
+    length: Vlq
+    data: seq[uint8]
+
+  # Track Meta events
+  MetaEvent = object
+    header: uint8
+    length: Vlq
+    data: seq[uint8]
+
   ChunkTypes = enum
     chUnknown = "MTuk"
     chHeader =  "MThd"
@@ -11,12 +51,35 @@ type
     dtTPQ =     "Ticks per quarter note" 
     dtFPS =     "Frames per Second / ticks per frame"
 
+  EventTypes = enum
+    etMidi =  "MIDI Event"
+    etSysex = "Sysex Event"
+    etMeta = "Meta Event"
+
+  MidiEventTypes = enum
+    meVoice =   "Channel voice messages"
+    meMode =    "Channel mode messages"
+
   MidiChunk = object
     chunkType: ChunkTypes
     length: uint32
     data: string
 
   MidiChunks = seq[MidiChunk]
+
+  MidiEvent = object
+    eventType: MidiEventTypes
+    dataBytes: array[2, int8]
+    status: uint8
+    channel: uint8
+
+  MidiTrack = object
+    length: uint32
+    chunk: MidiChunk
+    delta: Vlq
+    midiEvents: seq[MidiEvent]
+    metaEvents: seq[MetaEvent]
+    sysexEvents: seq[SysexEvent]
 
   Midi = object
     chunks: MidiChunks
@@ -27,6 +90,18 @@ type
     ticksPerQuarterNote: uint16
     framesPerSecond: int8
     ticksPerFrame: uint8
+    
+    # trackList: seq[MidiTrack]
+
+proc variableLengthQuantity(fs: Stream): Vlq =
+  var streamByte: uint8
+  fs.read(streamByte)
+  var data = @[streamByte]
+
+  while streamByte.testBit(7):
+    fs.read(streamByte)
+    data.add(streamByte)
+  data
 
 proc readBigUint32(fs: Stream): uint32 =
   var littleValue = fs.readUint32()
@@ -38,7 +113,7 @@ proc readBigUint16(fs: Stream): uint16 =
   result = 0u16
   bigEndian16(result.addr, littleValue.addr)
 
-proc newMidi(chunks: MidiChunks): Midi =
+proc initMidi(chunks: MidiChunks): Midi =
   if chunks[0].chunkType != chHeader:
     raise newException(ValueError, "Cannot create midi header unless chunks[0].chunkType == chHeader")
   if chunks.len < 2:
@@ -74,8 +149,65 @@ proc newMidi(chunks: MidiChunks): Midi =
     result.framesPerSecond = 0i8  # Reset other values
     result.ticksPerFrame = 0u8
 
+proc detectEvent(fs: Stream): EventTypes =
+  # Peek at data stream and determine the Event type.
+  var header = fs.peekUint8()
+  if header == SysexStart or header == SysexEscape:
+    result = etSysex
+  elif header == MetaEvents:
+    result = etMeta
+  elif header is ModeStatus or header is VoiceStatus:
+    result = etMidi
+  else:
+    raise newException(ValueError, "Byte does not match any known event")
+
+proc initMidiEvent(fs: Stream): MidiEvent =
+  ## Create new midi events.
+  var statusByte: uint8
+  var secondByte: int8
+  var thirdByte: int8
+  fs.read(statusByte)
+  fs.read(secondByte)
+  fs.read(thirdByte)
+
+  result.status = statusByte
+  result.dataBytes = [secondByte, thirdByte]
+  
+  if statusByte is ModeStatus and secondByte is ModeSub:
+    result.eventType = meMode
+  elif statusByte is VoiceStatus:
+    result.eventType = meVoice
+  
+  # Slice 8 bits in half and use 0..3 for the midi channel.
+  result.channel = statusByte.bitsliced(0 .. 3)
+
+proc initSysexEvent(fs: Stream): SysexEvent =
+  discard
+
+proc initMetaEvent(fs: Stream): MetaEvent = 
+  discard
+
+proc toMidiTrack(ch: MidiChunk): MidiTrack = 
+  if ch.chunkType != chTrack:
+    raise newException(ValueError, "MidiTrack requires MidiChunk.chunkType == chTrack")
+  result.length = ch.length
+  
+  var dataStream = ch.data.newStringStream()
+  result.delta = dataStream.variableLengthQuantity()
+  result.chunk = ch
+
+  var eventType: EventTypes
+  while not dataStream.atEnd():
+    eventType = dataStream.detectEvent()
+    case eventType:
+    of etMidi:
+      result.midiEvents.add(dataStream.initMidiEvent())
+    of etMeta:
+      result.metaEvents.add(dataStream.initMetaEvent())
+    of etSysex:
+      result.sysexEvents.add(dataStream.initSysexEvent())
+
 proc readChunk(fs: Stream): MidiChunk =
-  # let header = fs.readStr(4)
   result.chunkType = parseEnum[ChunkTypes](fs.readStr(4))
   result.length = fs.readBigUint32()
   result.data = fs.readStr(result.length.int)
@@ -91,5 +223,9 @@ var fileContents = newFileStream("sample.mid", fmRead)
 var chs = fileContents.readChunks()
 fileContents.close()
 
-var midi = chs.newMidi()
+var midi = chs.initMidi()
+
+echo $midi.format
+echo $midi.tracks
+echo $midi.divisionType
 
