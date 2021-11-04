@@ -6,12 +6,14 @@ type
   SomeStream = FileStream or StringStream
 
   ChunkTypes = enum
-    chUnknown = (0, "MTuk"), chHeader = (1, "MThd"), chTrack = (2, "MTrk")
+    chUnknown = "MTuk"
+    chHeader =  "MThd"
+    chTrack =   "MTrk"
 
   DivisionTypes = enum
-    dtUnknown = (0, "Unknown division type")
-    dtTPQ =     (1, "Ticks per quarter note"), 
-    dtFPS =     (2, "Frames per Second / ticks per frame")
+    dtUnknown = "Unknown division type"
+    dtTPQ =     "Ticks per quarter note" 
+    dtFPS =     "Frames per Second / ticks per frame"
 
   MidiChunk = object
     chunkType: ChunkTypes
