@@ -1,6 +1,4 @@
-import streams
-import endians
-import bitops
+import std/[streams, endians, bitops, strutils]
 
 type
   SomeStream = FileStream or StringStream
@@ -31,7 +29,7 @@ type
     ticksPerQuarterNote: uint16
     framesPerSecond: int8
     ticksPerFrame: uint8
-    
+
 proc readBigUint32(fs: var SomeStream): uint32 =
   var littleValue = fs.readUint32()
   result = 0u32
@@ -41,11 +39,6 @@ proc readBigUint16(fs: var SomeStream): uint16 =
   var littleValue = fs.readUint16()
   result = 0u16
   bigEndian16(result.addr, littleValue.addr)
-
-proc stream(s: string): StringStream =
-  ## Helper proc to save space when working with data
-  #
-  newStringStream(s)
 
 proc newMidi(chunks: MidiChunks): Midi =
   if chunks[0].chunkType != chHeader:
@@ -92,22 +85,13 @@ proc readChunk(fs: var FileStream): MidiChunk =
   discard fs.readDataStr(data, 0..length.int-1)
 
   var chunkType: ChunkTypes
-  case header:
-  of $chTrack:
-    result = MidiChunk(
-      chunkType: chTrack,
-      length: length,
-      data: data
-    )
+  result = MidiChunk(
+    chunkType: parseEnum[ChunkTypes](header),
+    length: length,
+    data: data
+  )
 
-  of $chHeader:
-    result = MidiChunk(
-      chunkType: chHeader,
-      length: length,
-      data: data
-    )
-  else:
-    chunkType = chUnknown
+  if chunkType == chUnknown:
     raise newException(ValueError, "Unknown chunk type encountered.")
 
 proc readChunks(fs: var FileStream): MidiChunks =
