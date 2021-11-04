@@ -109,6 +109,16 @@ type
     
     # trackList: seq[MidiTrack]
 
+proc variableLengthSequence(fs: Stream): seq[uint8] =
+  var streamByte: uint8
+  fs.read(streamByte)
+  var data = @[streamByte]
+
+  while streamByte.testBit(7):
+    fs.read(streamByte)
+    data.add(streamByte)
+  data
+
 proc toVlq(xs: openArray[uint8]): Vlq =
   ## Convert byte sequence to a variable length quantity.
   #
