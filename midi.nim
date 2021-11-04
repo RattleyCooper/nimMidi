@@ -18,7 +18,7 @@ type
 
   MidiChunks = seq[MidiChunk]
 
-  Midi = ref object of RootObj
+  Midi = object
     chunks: MidiChunks
     format: uint16
     tracks: uint16
@@ -28,12 +28,12 @@ type
     framesPerSecond: int8
     ticksPerFrame: uint8
 
-proc readBigUint32(fs: var Stream): uint32 =
+proc readBigUint32(fs: Stream): uint32 =
   var littleValue = fs.readUint32()
   result = 0u32
   bigEndian32(result.addr, littleValue.addr)
 
-proc readBigUint16(fs: var Stream): uint16 =
+proc readBigUint16(fs: Stream): uint16 =
   var littleValue = fs.readUint16()
   result = 0u16
   bigEndian16(result.addr, littleValue.addr)
@@ -44,8 +44,6 @@ proc newMidi(chunks: MidiChunks): Midi =
   if chunks.len < 2:
     raise newException(ValueError, "Only a header chunk exists.  No MIDI tracks to read.  Try `readChunk` on raw data")
   let headerChunk = chunks[0]
-
-  result = new Midi
   var data = headerChunk.data.newStringStream()
 
   # The following header chunk reads must always retain this
@@ -76,25 +74,16 @@ proc newMidi(chunks: MidiChunks): Midi =
     result.framesPerSecond = 0i8  # Reset other values
     result.ticksPerFrame = 0u8
 
-proc readChunk(fs: var Stream): MidiChunk =
+proc readChunk(fs: Stream): MidiChunk =
   # let header = fs.readStr(4)
   result.chunkType = parseEnum[ChunkTypes](fs.readStr(4))
   result.length = fs.readBigUint32()
   result.data = fs.readStr(result.length.int)
 
-  # discard fs.readDataStr(data, 0..length.int-1)
-
-  # var chunkType: ChunkTypes
-  # result = MidiChunk(
-  #   chunkType: parseEnum[ChunkTypes](header),
-  #   length: length,
-  #   data: data
-  # )
-
   if result.chunkType == chUnknown:
     raise newException(ValueError, "Unknown chunk type encountered.")
 
-proc readChunks(fs: var Stream): MidiChunks =
+proc readChunks(fs: Stream): MidiChunks =
   while not fs.atEnd():
     result.add(fs.readChunk())
 
