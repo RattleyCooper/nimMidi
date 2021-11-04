@@ -1,8 +1,6 @@
 import std/[streams, endians, bitops, strutils]
 
 type
-  SomeStream = FileStream or StringStream
-
   ChunkTypes = enum
     chUnknown = "MTuk"
     chHeader =  "MThd"
@@ -30,12 +28,12 @@ type
     framesPerSecond: int8
     ticksPerFrame: uint8
 
-proc readBigUint32(fs: var SomeStream): uint32 =
+proc readBigUint32(fs: var Stream): uint32 =
   var littleValue = fs.readUint32()
   result = 0u32
   bigEndian32(result.addr, littleValue.addr)
 
-proc readBigUint16(fs: var SomeStream): uint16 =
+proc readBigUint16(fs: var Stream): uint16 =
   var littleValue = fs.readUint16()
   result = 0u16
   bigEndian16(result.addr, littleValue.addr)
@@ -78,23 +76,25 @@ proc newMidi(chunks: MidiChunks): Midi =
     result.framesPerSecond = 0i8  # Reset other values
     result.ticksPerFrame = 0u8
 
-proc readChunk(fs: var FileStream): MidiChunk =
-  let header = fs.readStr(4)
-  let length = fs.readBigUint32()
-  var data = newString(length)
-  discard fs.readDataStr(data, 0..length.int-1)
+proc readChunk(fs: var Stream): MidiChunk =
+  # let header = fs.readStr(4)
+  result.chunkType = parseEnum[ChunkTypes](fs.readStr(4))
+  result.length = fs.readBigUint32()
+  result.data = fs.readStr(result.length.int)
 
-  var chunkType: ChunkTypes
-  result = MidiChunk(
-    chunkType: parseEnum[ChunkTypes](header),
-    length: length,
-    data: data
-  )
+  # discard fs.readDataStr(data, 0..length.int-1)
 
-  if chunkType == chUnknown:
+  # var chunkType: ChunkTypes
+  # result = MidiChunk(
+  #   chunkType: parseEnum[ChunkTypes](header),
+  #   length: length,
+  #   data: data
+  # )
+
+  if result.chunkType == chUnknown:
     raise newException(ValueError, "Unknown chunk type encountered.")
 
-proc readChunks(fs: var FileStream): MidiChunks =
+proc readChunks(fs: var Stream): MidiChunks =
   while not fs.atEnd():
     result.add(fs.readChunk())
 
