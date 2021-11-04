@@ -5,8 +5,6 @@ import std/[streams, endians, bitops, strutils]
 
 # SMPTE frames per second is usually standardized to 30 fps for music
 
-
-
 const
   SysexStart = 0xF0u8
   SysexEscape = 0xF7u8
@@ -109,6 +107,9 @@ type
     
     # trackList: seq[MidiTrack]
 
+proc contains[T](t: typedesc[range], val: T): bool = 
+  val in t.low..t.high
+
 proc variableLengthSequence(fs: Stream): seq[uint8] =
   var streamByte: uint8
   fs.read(streamByte)
@@ -125,7 +126,6 @@ proc toVlq(xs: openArray[uint8]): Vlq =
   if xs.len == 1:
     return xs[0].uint32
   
-  result = 0u32
   for x in xs:
     result = (result shl 7) or (x and 127)
 
@@ -133,8 +133,6 @@ proc toVlq(xs: openArray[uint8]): Vlq =
 proc toVlq(fs: Stream): Vlq =
   ## Convert stream into a variable length quantity.
   #
-  result = 0u32
-
   var c = 0
   var theByte: uint8
   while not fs.atEnd():
@@ -240,10 +238,22 @@ proc initMidiEvent(fs: Stream): MidiEvent =
 
 
 proc initSysexEvent(fs: Stream): SysexEvent =
-  ## Create new sysex events.  Sysex events include
+  ## Create new sysex events.  Sysex events are system exclusive
+  ## events associated with specific MIDI products
+  ## 
+  ## https://www.personal.kent.edu/~sbirch/Music_Production/MP-II/MIDI/midi_system_exclusive_messages.htm
+  #
   discard
 
 proc initMetaEvent(fs: Stream): MetaEvent = 
+  ## Create new meta events.  Meta events include all text events
+  ## and other metadata.
+  ## 
+  ## Meta events can safely be skipped as they do not determine
+  ## how MIDI is played/sequenced.
+  ## 
+  ## https://www.personal.kent.edu/~sbirch/Music_Production/MP-II/MIDI/midi_file_format.htm#meta_event
+  #
   discard
 
 proc toMidiTrack(ch: MidiChunk): MidiTrack = 
