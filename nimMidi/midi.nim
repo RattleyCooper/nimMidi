@@ -11,7 +11,6 @@ const
   MetaEvents = 0xFFu8
 
 type
-  Vlq = uint32 # Variable length quantity
 
   # Track midi event voice types
   # Voice events fall in range of 0x80..0xE7
@@ -36,13 +35,13 @@ type
   # Track Sysex events
   SysexEvent = object
     header: uint8
-    length: Vlq
+    length: uint32
     data: seq[uint8]
 
   # Track Meta events
   MetaEvent = object
     header: uint8
-    length: Vlq
+    length: uint32
     data: seq[uint8]
 
   ChunkTypes = enum
@@ -90,7 +89,7 @@ type
   MidiTrack = object
     length: uint32
     chunk: MidiChunk
-    delta: Vlq      # This can be 0x00
+    delta: uint32      # This can be 0x00
     midiEvents: seq[MidiEvent]
     metaEvents: seq[MetaEvent]
     sysexEvents: seq[SysexEvent]
@@ -120,7 +119,7 @@ proc variableLengthSequence(fs: Stream): seq[uint8] =
     data.add(streamByte)
   data
 
-proc toVlq(xs: openArray[uint8]): Vlq =
+proc toVlq(xs: openArray[uint8]): uint32 =
   ## Convert byte sequence to a variable length quantity.
   #
   if xs.len == 1:
@@ -130,7 +129,7 @@ proc toVlq(xs: openArray[uint8]): Vlq =
     result = (result shl 7) or (x and 127)
 
 
-proc toVlq(fs: Stream): Vlq =
+proc toVlq(fs: Stream): uint32 =
   ## Convert stream into a variable length quantity.
   #
   var c = 0
@@ -141,20 +140,6 @@ proc toVlq(fs: Stream): Vlq =
     c += 1
   if c == 1:
     result = theByte.uint32
-
-var u: uint8 = 37
-echo $u.char
-
-echo "vlq"
-echo $(@[0x80u8].toVlq())
-echo ""
-echo $(@[0xffu8, 0x7fu8].toVlq()) # == 16383
-echo ""
-echo $(@[0xbdu8, 0x84u8, 0x40u8].toVlq())  # == 100,000
-
-var s = $(char(0xbdu8)) & $(char(0x84u8)) & $(char(0x40u8))
-var ss = newStringStream(s)
-echo $ss.toVlq()
 
 
 proc readBigUint32(fs: Stream): uint32 =
@@ -288,7 +273,7 @@ proc readChunks(fs: Stream): MidiChunks =
   while not fs.atEnd():
     result.add(fs.readChunk())
 
-var fileContents = newFileStream("sample.mid", fmRead)
+var fileContents = newFileStream("nimMidi/sample.mid", fmRead)
 var chs = fileContents.readChunks()
 fileContents.close()
 
